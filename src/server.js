@@ -78,8 +78,6 @@ function runServer() {
                 db[userId][sigAlgo] = {
                     'serverShare': keygenResult,
                 };
-
-                console.log('kg db', db);
             });
         } catch (e) {
             // Log any errors that arise from handling the request
@@ -99,7 +97,6 @@ function runServer() {
                 const mpcSigner = sigAlgo == 'ecdsa' ? new Ecdsa() : new Ed25519();
 
                 // Check if the userId already exists in the database and has key material for the relevant signature algorithm
-                console.log('si db', db);
                 if (!db.hasOwnProperty(userId)) {
                     // Return a 400 error with a message
                     res.status(400).send('User does not exist');
