@@ -64,23 +64,28 @@ export async function runClient(sigAlgo, userId) {
     console.log('refreshRoomUuid:', refreshRoomUuid);
 
     const refreshedResult: any = await mpcSigner.refresh(refreshRoomUuid, keygenResult);
+    console.log(`Refreshed key material: ${refreshedResult.pubkey},${refreshedResult.secretShare}`);
     
+
     // We will now use the refreshedResult as key material for signing (under the same public key) with the server
-    res = await fetch(`${SERVER_URL}/sign/${userId}/${sigAlgo}/${message}/${derivationPathStr}`);
+    let message2: any = 'c304907f86ae42a8b0aca662380d22af48969a94e1344dd68d8802c0fdbf1df8e7ccdb9ce3f24659b116e4f793390612'
+    res = await fetch(`${SERVER_URL}/sign/${userId}/${sigAlgo}/${message2}/${derivationPathStr}`);
     const signingRoomUuid2 = await res.text();
     console.log('signingRoomUuid2:', signingRoomUuid2);
 
     // The pubkey is the same
     let pubkey2: any = await mpcSigner.derivePubkey(refreshedResult, derivationPath);
     if (sigAlgo == 'ecdsa') {
+        // For ecdsa, signing requires a hashed message, while ed25519 requires the raw message
+        message2 = MessageHash.sha256(message2);
         // For ecdsa, we serialize the pubkey to make it readable
         pubkey2 = pubkey2.serializeCompressed();
     }
-    console.log(`As public key: ${pubkey2}, the pubkey is the same: ${JSON.stringify(pubkey) == JSON.stringify(pubkey2)}, signing message: ${message.toHex ? message.toHex() : message}`);
-    let signature2: any = await mpcSigner.sign(signingRoomUuid2, refreshedResult, message, derivationPath);
+    console.log(`As public key: ${pubkey2}, the pubkey is the same: ${JSON.stringify(pubkey) == JSON.stringify(pubkey2)}, signing message: ${message2.toHex ? message2.toHex() : message2}`);
+    let signature2: any = await mpcSigner.sign(signingRoomUuid2, refreshedResult, message2, derivationPath);
     if (sigAlgo == 'ecdsa') {
         // For ecdsa we pick the DER serialization of the signature for logging purposes, (r,s,v) representation is also available
-        signature = signature.der;
+        signature2 = signature2.der;
     }
-    console.log(`Successfully created a signature together with the server with the new key material: ${signature}`);
+    console.log(`Successfully created a signature together with the server with the new key material: ${signature2}`);
 }

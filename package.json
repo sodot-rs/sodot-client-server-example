@@ -12,7 +12,7 @@
   "license": "ISC",
   "dependencies": {
     "@babel/runtime": "^7.22.10",
-    "@sodot/sodot-node-sdk-demo": "^1.0.1",
+    "@sodot/sodot-node-sdk-demo": "^2.0.1",
     "async-mutex": "^0.4.0",
     "cors": "^2.8.5",
     "dotenv": "^16.3.1",
