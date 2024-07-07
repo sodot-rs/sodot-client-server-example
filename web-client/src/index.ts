@@ -20,7 +20,9 @@ export async function runClient(sigAlgo, userId) {
     const keygenRoomUuid = params[0];
     const serverKeygenId = params[1];
 
+    console.log('keygenRoomUuid:', keygenRoomUuid);
     const keygenResult: any = await mpcSigner.keygen(keygenRoomUuid, N, T, initKeygenResult, [serverKeygenId]);
+    console.log('CLIENT keygen done');
     let masterPubkey = keygenResult.pubkey;
     if (sigAlgo == 'ecdsa') {
         // For ecdsa, we serialize the pubkey to make it readable
@@ -50,13 +52,14 @@ export async function runClient(sigAlgo, userId) {
         pubkey = pubkey.serializeCompressed();
     }
 
-    console.log(`As public key: ${pubkey}, signing message: ${message.toHex ? message.toHex() : message}`);
+    console.log(`signing room id: ${signingRoomUuid}, as public key: ${pubkey}, signing message: ${message.toHex ? message.toHex() : message}`);
     let signature: any = await mpcSigner.sign(signingRoomUuid, keygenResult, message, derivationPath);
     if (sigAlgo == 'ecdsa') {
         // For ecdsa we pick the DER serialization of the signature for logging purposes, (r,s,v) representation is also available
         signature = signature.der;
     }
     console.log(`Successfully created a signature together with the server: ${signature}`);
+    return;
 
     // Now we will refresh the key material
     res = await fetch(`${SERVER_URL}/refresh/${userId}/${sigAlgo}`);
@@ -64,9 +67,7 @@ export async function runClient(sigAlgo, userId) {
     console.log('refreshRoomUuid:', refreshRoomUuid);
 
     const refreshedResult: any = await mpcSigner.refresh(refreshRoomUuid, keygenResult);
-    console.log(`Refreshed key material: ${refreshedResult.pubkey},${refreshedResult.secretShare}`);
     
-
     // We will now use the refreshedResult as key material for signing (under the same public key) with the server
     let message2: any = 'c304907f86ae42a8b0aca662380d22af48969a94e1344dd68d8802c0fdbf1df8e7ccdb9ce3f24659b116e4f793390612'
     res = await fetch(`${SERVER_URL}/sign/${userId}/${sigAlgo}/${message2}/${derivationPathStr}`);

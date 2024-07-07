@@ -21,6 +21,6 @@
         "webpack-dev-server": "^4.15.1"
     },
     "dependencies": {
-        "@sodot/sodot-web-sdk-demo": "^2.0.1"
+        "@sodot/sodot-web-sdk-demo": "^2.1.0-rc.2"
     }
 }

@@ -4,12 +4,12 @@ import express from 'express';
 import cors from 'cors';
 import { Mutex } from 'async-mutex';
 import env from 'dotenv';
-// Note that we use the demo version of the SDK for this example
-import { Ecdsa, Ed25519, MessageHash } from '@sodot/sodot-node-sdk-demo';
 
-// This loads the API_KEY env variable from a .env file in the project root directory
+// This loads the VERTEX_API_KEY env variable from a .env file in the project root directory
 env.config();
-const API_KEY = process.env.API_KEY;
+const VERTEX_API_KEY = process.env.VERTEX_API_KEY;
+// Note that we use Vertex compatible with the demo version of the SDK for this example
+const VERTEX_URL = 'https://vertex-demo-0.sodot.dev';
 
 // For this client-server example we use a simple 2-of-2 setting
 const T = 2;
@@ -30,6 +30,40 @@ function shouldAllowSigning(message, derivationPath) {
     return true;
 }
 
+// Helper function to send a POST request to the server
+async function postData(apiEndpoint, data = {}, isJson = true) {
+    const response = await fetch(`${VERTEX_URL}/${apiEndpoint}`, {
+        method: "POST",
+        headers: {
+            "Authorization": VERTEX_API_KEY,
+            "Content-Type": "application/json",
+        },
+        body: JSON.stringify(data),
+    });
+    if (!response.ok) {
+        throw new Error(`Failed to post data to ${apiEndpoint}: ${response.status}, ${await response.text()}`);
+    }
+    if (isJson) {
+        return response.json();
+    }
+    return response;
+}
+
+// Helper function to send a GET request to the server
+async function getData(apiEndpoint, isJson = true) {
+    const response = await fetch(`${VERTEX_URL}/${apiEndpoint}`, {
+        method: "GET",
+        headers: {
+            "Authorization": VERTEX_API_KEY,
+            "Content-Type": "application/json",
+        },
+    });
+    if (isJson) {
+        return response.json();
+    }
+    return response;
+}
+
 function runServer() {
     // Create an Express app
     const app = express();
@@ -48,7 +82,6 @@ function runServer() {
                 const userId = req.params.userId;
                 const sigAlgo = req.params.sigAlgo;
                 const clientKeygenId = req.params.keygenId;
-                const mpcSigner = sigAlgo == 'ecdsa' ? new Ecdsa() : new Ed25519();
 
                 // Check if the userId already exists in the database
                 if (db.hasOwnProperty(userId) && db[userId].hasOwnProperty(sigAlgo)) {
@@ -57,27 +90,27 @@ function runServer() {
                     throw new Error('User already exists');
                 }
 
-                // Create a room and locally compute our keygenId
-                const roomUuid = await mpcSigner.createRoom(N, API_KEY);
-                const initKeygenResult = await mpcSigner.initKeygen();
+                // Create a room and create a key_id for the keygen
+                const roomUuid = (await postData('create-room', { room_size: N })).room_uuid;
+                const keygenInitData = await getData(`${sigAlgo}/create`);
 
-                // Return a 200 OK status with the roomUuid and the server's keygenId
-                res.status(200).send(`["${roomUuid}","${initKeygenResult.keygenId}"]`);
+                // Return a 200 OK status with the roomUuid and the server's keygen id
+                res.status(200).send(`["${roomUuid}","${keygenInitData.keygen_id}"]`);
 
                 // Run keygen
-                const keygenResult = await mpcSigner.keygen(roomUuid, N, T, initKeygenResult, [clientKeygenId]);
-                let pubkey = keygenResult.pubkey;
-                if (sigAlgo == 'ecdsa') {
-                    // For ecdsa, we serialize the pubkey to make it readable
-                    pubkey = pubkey.serializeCompressed();
-                }
-                console.log(`Server keygen result: ${pubkey},${keygenResult.secretShare}`);
-
-                // Store the keygen data for this user
-                db[userId] = {};
-                db[userId][sigAlgo] = {
-                    'serverShare': keygenResult,
+                const keygenData = {
+                    key_id: keygenInitData.key_id,
+                    num_parties: N,
+                    others_keygen_ids: [clientKeygenId],
+                    room_uuid: roomUuid,
+                    threshold: T
                 };
+                const result = await postData(`${sigAlgo}/keygen`, keygenData, false);
+                console.log(`SERVER Keygen is done: ${JSON.stringify(result)}, ${JSON.stringify(keygenData)}`);
+
+                // Store the key id data for this user
+                db[userId] = {};
+                db[userId][sigAlgo] = { keyId: keygenInitData.key_id };
             });
         } catch (e) {
             // Log any errors that arise from handling the request
@@ -94,7 +127,6 @@ function runServer() {
                 const sigAlgo = req.params.sigAlgo;
                 let message = req.params.message;
                 const derivationPath = JSON.parse(req.params.derivationPath);
-                const mpcSigner = sigAlgo == 'ecdsa' ? new Ecdsa() : new Ed25519();
 
                 // Check if the userId already exists in the database and has key material for the relevant signature algorithm
                 if (!db.hasOwnProperty(userId)) {
@@ -107,7 +139,7 @@ function runServer() {
                 }
 
                 // Create a room for signing
-                const roomUuid = await mpcSigner.createRoom(N, API_KEY);
+                const roomUuid = (await postData('create-room', { room_size: T })).room_uuid;
                 // Return a 200 OK status with the roomUuid
                 res.status(200).send(`${roomUuid}`);
 
@@ -118,23 +150,21 @@ function runServer() {
                 }
 
                 // Now we sign with the client
-                let serverShare = db[userId][sigAlgo]['serverShare'];
-                let pubkey = await mpcSigner.derivePubkey(serverShare, derivationPath);
+                let keyId = db[userId][sigAlgo]['keyId'];
 
-                if (sigAlgo == 'ecdsa') {
-                    // For ecdsa, signing requires a hashed message, while ed25519 requires the raw message
-                    message = MessageHash.sha256(message);
-                    // For ecdsa, we serialize the pubkey to make it readable
-                    pubkey = pubkey.serializeCompressed();
-                }
-
-                console.log(`As public key: ${pubkey}, signing message: ${message.toHex ? message.toHex() : message}`);
-                let signature = await mpcSigner.sign(roomUuid, serverShare, message, derivationPath);
-                if (sigAlgo == 'ecdsa') {
-                    // For ecdsa we pick the DER serialization of the signature for logging purposes, (r,s,v) representation is also available
-                    signature = signature.der;
-                }
-                console.log(`Successfully created signature together with the client: ${signature}`);
+                // For ecdsa we specify the hash to apply to the message before signing
+                const hashAlgo = sigAlgo == 'ecdsa' ? 'SHA256' : undefined;
+                // For ecdsa we convert the message to a hex string
+                const messageToSign = sigAlgo == 'ecdsa' ? message.split("").map(c => c.charCodeAt(0).toString(16).padStart(2, "0")).join("") : message;
+                const signData = {
+                    key_id: keyId,
+                    room_uuid: roomUuid,
+                    derivation_path: derivationPath,
+                    msg: messageToSign,
+                    hash_algo: hashAlgo,
+                };
+                const result = await postData(`${sigAlgo}/sign`, signData);
+                console.log(`Successfully created signature together with the client: ${JSON.stringify(result)}`);
             });
         } catch (e) {
             // Log any errors that arise from handling the request
@@ -149,7 +179,6 @@ function runServer() {
                 // Parse the parameters
                 const userId = req.params.userId;
                 const sigAlgo = req.params.sigAlgo;
-                const mpcSigner = sigAlgo == 'ecdsa' ? new Ecdsa() : new Ed25519();
 
                 // Check if the userId already exists in the database and has key material for the relevant signature algorithm
                 if (!db.hasOwnProperty(userId)) {
@@ -161,19 +190,18 @@ function runServer() {
                     throw new Error('User does not have key material');
                 }
 
-                // Create a room for refresh
-                const roomUuid = await mpcSigner.createRoom(N, API_KEY);
+                // Create a room and create a key_id for the refresh
+                const roomUuid = (await postData('create-room', { room_size: N })).room_uuid;
                 // Return a 200 OK status with the roomUuid
                 res.status(200).send(`${roomUuid}`);
 
                 // Now we refresh the key material for the same public key with the client
-                let serverShare = db[userId][sigAlgo]['serverShare'];
+                let keyId = db[userId][sigAlgo]['keyId'];
 
-                console.log(`Refreshing userId's: ${userId} share for algo: ${sigAlgo}`);
-                let refreshedResult = await mpcSigner.refresh(roomUuid, serverShare);
-                
-                // We update the serverShare to the refreshed share, we can sign with the refreshed share for the same public key
-                db[userId][sigAlgo]['serverShare'] = refreshedResult;
+                const newKeyId = (await postData(`${sigAlgo}/refresh`, { key_id: keyId, room_uuid: roomUuid })).key_id;
+
+                // We update the keyId to the refreshed share, we can sign with the refreshed share for the same public key
+                db[userId][sigAlgo]['keyId'] = newKeyId;
                 console.log('Successfully refreshed the key material together with the client');
             });
         } catch (e) {
