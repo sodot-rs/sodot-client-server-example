@@ -8,7 +8,7 @@ import env from 'dotenv';
 // This loads the VERTEX_API_KEY env variable from a .env file in the project root directory
 env.config();
 const VERTEX_API_KEY = process.env.VERTEX_API_KEY;
-// Note that we use Vertex compatible with the demo version of the SDK for this example
+// Note that we use a Vertex compatible with the demo version of the SDK for this example
 const VERTEX_URL = 'https://vertex-demo-0.sodot.dev';
 
 // For this client-server example we use a simple 2-of-2 setting
