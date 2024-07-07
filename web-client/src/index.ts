@@ -59,7 +59,6 @@ export async function runClient(sigAlgo, userId) {
         signature = signature.der;
     }
     console.log(`Successfully created a signature together with the server: ${signature}`);
-    return;
 
     // Now we will refresh the key material
     res = await fetch(`${SERVER_URL}/refresh/${userId}/${sigAlgo}`);
